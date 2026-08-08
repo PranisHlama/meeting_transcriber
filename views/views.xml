@@ -33,6 +33,16 @@
               <field name="calendar_event_id"/>
               <field name="recording_filename"/>
               <field name="recording_file" widget="binary" filename="recording_filename"/>
+            </group>
+            <group string="Technical Metadata" col="2">
+              <field name="duration_seconds" readonly="1"/>
+              <field name="file_size" readonly="1"/>
+              <field name="container_format" readonly="1"/>
+              <field name="audio_codec" readonly="1"/>
+              <field name="sample_rate" readonly="1"/>
+              <field name="channel_count" readonly="1"/>
+            </group>
+            <group>
               <field name="extracted_audio_filename" readonly="1"/>
               <field name="extracted_audio_file" widget="binary" filename="extracted_audio_filename" readonly="1"/>
               <field name="media_metadata" readonly="1"/>

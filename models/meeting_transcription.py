@@ -1,6 +1,7 @@
 import base64
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -62,6 +63,13 @@ class MeetingTranscription(models.Model):
         readonly=True,
     )
 
+    duration_seconds = fields.Float(readonly=True)
+    file_size = fields.Integer(readonly=True)
+    container_format = fields.Char(readonly=True)
+    audio_codec = fields.Char(readonly=True)
+    sample_rate = fields.Integer(readonly=True)
+    channel_count = fields.Integer(readonly=True)
+
     state = fields.Selection([
         ("draft", "Draft"),
         ("validating", "Validating"),
@@ -102,27 +110,15 @@ class MeetingTranscription(models.Model):
 
         return suffix
 
-    # Inspect the file with ffprobe
-    def inspect_media(self, file_path, metadata=None):
-        duration = float(metadata.get("format", {}).get("duration", 0.0))
-        file_size = int(metadata.get("format", {}).get("size", 0))
-
-        if duration < MIN_DURATION_SECONDS:
+    def inspect_media(self, file_path):
+        ffprobe_path = shutil.which("ffprobe")
+        if not ffprobe_path:
             raise ValidationError(
-                "The recording is too short."
+                "ffprobe is not installed or not available on the server PATH."
             )
 
-        if duration > MAX_DURATION_SECONDS:
-            raise ValidationError(
-                "The recording exceeds the four-hour limit."
-            )
-
-        if file_size > MAX_FILE_SIZE:
-            raise ValidationError(
-                "The recording exceeds the maximum file size."
-            )
         command = [
-            "ffprobe",
+            ffprobe_path,
             "-v",
             "error",
             "-show_entries",
@@ -151,9 +147,35 @@ class MeetingTranscription(models.Model):
             raise ValidationError(
                 f"The uploaded file is not a valid media: {error}"
             )
-        return json.loads(result.stdout)
+
+        metadata = json.loads(result.stdout)
+        format_metadata = metadata.get("format", {})
+        duration = float(format_metadata.get("duration", 0.0))
+        file_size = int(format_metadata.get("size", 0))
+
+        if duration < MIN_DURATION_SECONDS:
+            raise ValidationError(
+                "The recording is too short."
+            )
+
+        if duration > MAX_DURATION_SECONDS:
+            raise ValidationError(
+                "The recording exceeds the four-hour limit."
+            )
+
+        if file_size > MAX_FILE_SIZE:
+            raise ValidationError(
+                "The recording exceeds the maximum file size."
+            )
+
+        return metadata
 
     def find_audio_stream(self, metadata):
+        """
+            Find the first audio stream in media metadata. 
+            Returns: dict: Audio stream metadata. 
+            Raises: ValidationError: If no audio stream exists. 
+        """
         audio_streams = [
             stream for stream in metadata.get("streams", [])
             if stream.get("codec_type") == "audio"
@@ -167,8 +189,14 @@ class MeetingTranscription(models.Model):
         return audio_streams[0]
 
     def extract_audio(self, input_path, output_path):
+        ffmpeg_path = shutil.which("ffmpeg")
+        if not ffmpeg_path:
+            raise ValidationError(
+                "ffmpeg is not installed or not available on the server PATH."
+            )
+
         command = [
-            "ffmpeg",
+            ffmpeg_path,
             "-i",
             str(input_path),
             "-vn",
@@ -178,6 +206,7 @@ class MeetingTranscription(models.Model):
             "44100",
             "-ac",
             "2",
+            "-y",
             str(output_path),
         ]
 
@@ -196,4 +225,56 @@ class MeetingTranscription(models.Model):
             raise ValidationError(
                 f"Failed to extract audio: {error}"
             )
-    
+
+    def _extract_media_field_values(self, metadata):
+        format_metadata = metadata.get("format", {})
+        audio_stream = self.find_audio_stream(metadata)
+
+        sample_rate = audio_stream.get("sample_rate")
+        channel_count = audio_stream.get("channels")
+
+        return {
+            "duration_seconds": float(format_metadata.get("duration", 0.0)),
+            "file_size": int(format_metadata.get("size", 0)),
+            "container_format": format_metadata.get("format_name"),
+            "audio_codec": audio_stream.get("codec_name"),
+            "sample_rate": int(sample_rate) if sample_rate else False,
+            "channel_count": int(channel_count) if channel_count else False,
+        }
+
+    def _inspect_recording_file(self):
+        self.ensure_one()
+
+        suffix = self._validate_extension()
+        recording_bytes = base64.b64decode(self.recording_file)
+
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix,
+            delete=False,
+        ) as temp_file:
+            temp_file.write(recording_bytes)
+            temp_path = Path(temp_file.name)
+
+        try:
+            metadata = self.inspect_media(temp_path)
+            field_values = self._extract_media_field_values(metadata)
+            self.write({
+                "media_metadata": metadata,
+                **field_values,
+            })
+        finally:
+            if temp_path.exists():
+                os.unlink(temp_path)
+    def split_audio(self, input_path, output_dir):
+        command = [
+            "ffmeg",
+            "i",
+            str(input_path),
+            "-f",
+            "segment",
+            "-segment_time",
+            "600",
+            "-c",
+            "copy",
+            str(output_dir / "segment_%03d.wav")
+        ]
