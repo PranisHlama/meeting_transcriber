@@ -25,6 +25,12 @@
                     class="btn-primary"
                     invisible="state not in ['draft', 'uploaded', 'failed']"
                     />
+            <button name="action_transcript_audio"
+                    string="Transcript Audio"
+                    type="object"
+                    class="btn-primary"
+                    invisible="state not in ['validating', 'queued', 'failed']"
+                    />
             <field name="state" widget="statusbar"/>
           </header>
           <sheet>
@@ -47,6 +53,15 @@
               <field name="extracted_audio_file" widget="binary" filename="extracted_audio_filename" readonly="1"/>
               <field name="media_metadata" readonly="1"/>
               <field name="error_message" readonly="1"/>
+              <field name="segment_ids">
+                  <list editable="bottom">
+                      <field name="sequence"/>
+                      <field name="start_ms"/>
+                      <field name="end_ms"/>
+                      <field name="speaker_label"/>
+                      <field name="text"/>
+                  </list>
+              </field>
             </group>
           </sheet>
           <chatter/>

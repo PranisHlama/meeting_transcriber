@@ -6,6 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import requests
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
@@ -82,6 +83,12 @@ class MeetingTranscription(models.Model):
         ("failed", "Failed"),
     ], default="draft", tracking=True)
 
+    segment_ids = fields.One2many(
+        comodel_name="meeting.transcript.segment",
+        inverse_name="transcription_id",
+        string="Transcript Segments",
+    )
+
 
     def action_process_recording(self):
         for record in self:
@@ -95,6 +102,26 @@ class MeetingTranscription(models.Model):
                 "error_message": False
             })
         return True
+
+    def action_transcript_audio(self):
+        for record in self:
+            if not record.extracted_audio_file:
+                raise UserError("No extracted audio file found.")
+            try:
+                record.write({"state": "transcribing", "error_message": False})
+                transcription_result = record._transcribe_extracted_audio()
+                record._replace_transcript_segments(transcription_result)
+                record.write({
+                    "state": "review",
+                    "error_message": False,
+                })
+            except Exception as e:
+                record.write({
+                    "state": "failed",
+                    "error_message": str(e),
+                })
+        return True
+                            
     
     def _validate_extension(self):
         self.ensure_one()
@@ -225,6 +252,8 @@ class MeetingTranscription(models.Model):
             raise ValidationError(
                 f"Failed to extract audio: {error}"
             )
+        
+        
 
     def _extract_media_field_values(self, metadata):
         format_metadata = metadata.get("format", {})
@@ -247,6 +276,7 @@ class MeetingTranscription(models.Model):
 
         suffix = self._validate_extension()
         recording_bytes = base64.b64decode(self.recording_file)
+        extracted_audio_path = None
 
         with tempfile.NamedTemporaryFile(
             suffix=suffix,
@@ -258,17 +288,37 @@ class MeetingTranscription(models.Model):
         try:
             metadata = self.inspect_media(temp_path)
             field_values = self._extract_media_field_values(metadata)
+
+            with tempfile.NamedTemporaryFile(
+                suffix=EXTRACTED_AUDIO_EXTENSION,
+                delete=False,
+            ) as extracted_audio_file:
+                extracted_audio_path = Path(extracted_audio_file.name)
+
+            self.extract_audio(temp_path, extracted_audio_path)
+            extracted_audio_filename = (
+                f"{Path(self.recording_filename or self.name).stem}"
+                f"{EXTRACTED_AUDIO_EXTENSION}"
+            )
+
             self.write({
                 "media_metadata": metadata,
+                "extracted_audio_file": base64.b64encode(
+                    extracted_audio_path.read_bytes()
+                ),
+                "extracted_audio_filename": extracted_audio_filename,
                 **field_values,
             })
         finally:
             if temp_path.exists():
                 os.unlink(temp_path)
+            if extracted_audio_path and extracted_audio_path.exists():
+                os.unlink(extracted_audio_path)
+
     def split_audio(self, input_path, output_dir):
         command = [
-            "ffmeg",
-            "i",
+            "ffmpeg",
+            "-i",
             str(input_path),
             "-f",
             "segment",
@@ -278,3 +328,67 @@ class MeetingTranscription(models.Model):
             "copy",
             str(output_dir / "segment_%03d.wav")
         ]
+
+    def _transcribe_extracted_audio(self):
+        self.ensure_one()
+
+        audio_bytes = base64.b64decode(self.extracted_audio_file)
+        with tempfile.NamedTemporaryFile(
+            suffix=EXTRACTED_AUDIO_EXTENSION,
+            delete=False,
+        ) as audio_file:
+            audio_file.write(audio_bytes)
+            audio_path = Path(audio_file.name)
+
+        try:
+            return self.transcript_audio(audio_path)
+        finally:
+            if audio_path.exists():
+                os.unlink(audio_path)
+
+    def _replace_transcript_segments(self, transcription_result):
+        self.ensure_one()
+
+        segments = transcription_result.get("segments") or []
+        if not segments and transcription_result.get("text"):
+            segments = [{
+                "start": 0,
+                "end": transcription_result.get("duration") or 0,
+                "text": transcription_result["text"],
+            }]
+
+        self.segment_ids.unlink()
+        self.env["meeting.transcript.segment"].create([
+            {
+                "transcription_id": self.id,
+                "sequence": index + 1,
+                "start_ms": self._seconds_to_ms(segment.get("start")),
+                "end_ms": self._seconds_to_ms(segment.get("end")),
+                "text": segment.get("text", "").strip(),
+                "speaker_label": segment.get("speaker"),
+                "confidence": segment.get("confidence") or 0.0,
+            }
+            for index, segment in enumerate(segments)
+            if segment.get("text")
+        ])
+
+    @staticmethod
+    def _seconds_to_ms(value):
+        return int(float(value or 0) * 1000)
+
+    def transcript_audio(self, audio_file_path):
+        with open(audio_file_path, "rb") as audio_file:
+            response = requests.post(
+                "http://127.0.0.1:8010/transcribe",
+                files={
+                    "file": (
+                        audio_file_path.name,
+                        audio_file,
+                        "audio/wav",
+                    )
+                },
+                timeout=1800,
+            )
+
+        response.raise_for_status()
+        return response.json()
