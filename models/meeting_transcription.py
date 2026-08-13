@@ -1,4 +1,5 @@
 import base64
+import html
 import json
 import os
 import shutil
@@ -43,6 +44,12 @@ class MeetingTranscription(models.Model):
         string="Recording Filename",
     )
 
+    recording_audio_player = fields.Html(
+        string="Recording Player",
+        compute="_compute_audio_players",
+        sanitize=False,
+    )
+
     extracted_audio_file = fields.Binary(
         string="Extracted Audio",
         attachment=True,
@@ -52,6 +59,12 @@ class MeetingTranscription(models.Model):
     extracted_audio_filename = fields.Char(
         string="Extracted Audio Filename",
         readonly=True,
+    )
+
+    extracted_audio_player = fields.Html(
+        string="Extracted Audio Player",
+        compute="_compute_audio_players",
+        sanitize=False,
     )
 
     error_message = fields.Text(
@@ -88,6 +101,31 @@ class MeetingTranscription(models.Model):
         inverse_name="transcription_id",
         string="Transcript Segments",
     )
+
+    @api.depends("recording_file", "extracted_audio_file")
+    def _compute_audio_players(self):
+        """Build native HTML5 audio players for the stored binary files."""
+        for record in self:
+            record.recording_audio_player = record._audio_player_html(
+                "recording_file", record.recording_file
+            )
+            record.extracted_audio_player = record._audio_player_html(
+                "extracted_audio_file", record.extracted_audio_file
+            )
+
+    def _audio_player_html(self, field_name, file_value):
+        if not file_value or not self.id:
+            return False
+        src = "/web/content/meeting.transcription/%s/%s?download=0" % (
+            self.id,
+            field_name,
+        )
+        return (
+            '<audio controls preload="metadata" style="width: 100%%;">'
+            '<source src="%s">'
+            "Your browser does not support the audio player."
+            "</audio>"
+        ) % html.escape(src, quote=True)
 
 
     def action_process_recording(self):

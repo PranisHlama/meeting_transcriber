@@ -5,10 +5,10 @@
       <field name="model">meeting.transcription</field>
       <field name="arch" type="xml">
         <list string="Meeting Transcriptions">
-          <field name="name"/>
-          <field name="calendar_event_id"/>
-          <field name="recording_filename"/>
-          <field name="state"/>
+          <field name="name" />
+          <field name="calendar_event_id" />
+          <field name="recording_filename" />
+          <field name="state" />
         </list>
       </field>
     </record>
@@ -20,51 +20,56 @@
         <form string="Meeting Transcription">
           <header>
             <button name="action_process_recording"
-                    string="Process Recording"
-                    type="object"
-                    class="btn-primary"
-                    invisible="state not in ['draft', 'uploaded', 'failed']"
-                    />
+              string="Process Recording"
+              type="object"
+              class="btn-primary"
+              invisible="state not in ['draft', 'uploaded', 'failed']"
+            />
             <button name="action_transcript_audio"
-                    string="Transcript Audio"
-                    type="object"
-                    class="btn-primary"
-                    invisible="state not in ['validating', 'queued', 'failed']"
-                    />
-            <field name="state" widget="statusbar"/>
+              string="Transcript Audio"
+              type="object"
+              class="btn-primary"
+              invisible="state not in ['validating', 'queued', 'failed']"
+            />
+            <field name="state" widget="statusbar" />
           </header>
           <sheet>
-            <group>
-              <field name="name"/>
-              <field name="calendar_event_id"/>
-              <field name="recording_filename"/>
-              <field name="recording_file" widget="binary" filename="recording_filename"/>
+            <group col="2">
+              <group string="Details">
+                <field name="name" />
+                <field name="calendar_event_id" />
+                <field name="recording_filename" />
+                <field name="recording_file" widget="binary" filename="recording_filename" />
+                <field name="recording_audio_player" widget="html" readonly="1" nolabel="1" />
+              </group>
+              <group string="Technical Metadata">
+                <field name="duration_seconds" readonly="1" />
+                <field name="file_size" readonly="1" />
+                <field name="container_format" readonly="1" />
+                <field name="audio_codec" readonly="1" />
+                <field name="sample_rate" readonly="1" />
+                <field name="channel_count" readonly="1" />
+              </group>
             </group>
-            <group string="Technical Metadata" col="2">
-              <field name="duration_seconds" readonly="1"/>
-              <field name="file_size" readonly="1"/>
-              <field name="container_format" readonly="1"/>
-              <field name="audio_codec" readonly="1"/>
-              <field name="sample_rate" readonly="1"/>
-              <field name="channel_count" readonly="1"/>
-            </group>
             <group>
-              <field name="extracted_audio_filename" readonly="1"/>
-              <field name="extracted_audio_file" widget="binary" filename="extracted_audio_filename" readonly="1"/>
-              <field name="media_metadata" readonly="1"/>
-              <field name="error_message" readonly="1"/>
+              <field name="extracted_audio_filename" readonly="1" />
+              <field name="extracted_audio_file" widget="binary"
+                filename="extracted_audio_filename" readonly="1" />
+              <field name="extracted_audio_player" widget="html" readonly="1" nolabel="1" />
+              <field name="media_metadata" readonly="1" />
+              <field name="error_message" readonly="1" />
               <field name="segment_ids">
-                  <list editable="bottom">
-                      <field name="sequence"/>
-                      <field name="start_ms"/>
-                      <field name="end_ms"/>
-                      <field name="speaker_label"/>
-                      <field name="text"/>
-                  </list>
+                <list editable="bottom">
+                  <field name="sequence" />
+                  <field name="start_ms" />
+                  <field name="end_ms" />
+                  <field name="speaker_label" />
+                  <field name="text" />
+                </list>
               </field>
             </group>
           </sheet>
-          <chatter/>
+          <chatter />
         </form>
       </field>
     </record>
@@ -76,13 +81,13 @@
     </record>
 
     <menuitem id="meeting_transcriber_menu_root"
-              name="Meeting Transcriber"
-              sequence="10"/>
+      name="Meeting Transcriber"
+      sequence="10" />
 
     <menuitem id="meeting_transcriber_menu"
-              name="Transcriptions"
-              parent="meeting_transcriber_menu_root"
-              action="meeting_transcription_action"
-              sequence="10"/>
+      name="Transcriptions"
+      parent="meeting_transcriber_menu_root"
+      action="meeting_transcription_action"
+      sequence="10" />
   </data>
 </odoo>
